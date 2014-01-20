@@ -57,6 +57,9 @@ DEATH
     elsif ( $arg eq '--no-create' ) {
       $opts{no_create} = 1;
     }
+    elsif ( $arg eq '--versioned' ) {
+      $opts{versioned} = 1;
+    }
     elsif ( $arg =~ /^--/ ) {
       die "Unknown import argument: $arg";
     }
@@ -99,6 +102,7 @@ sub libs { $_[0]->{libs}   ||= [ \'PERL5LIB' ] }
 sub bins { $_[0]->{bins}   ||= [ \'PATH' ] }
 sub roots { $_[0]->{roots} ||= [ \'PERL_LOCAL_LIB_ROOT' ] }
 sub extra { $_[0]->{extra} ||= {} }
+sub versioned { $_[0]->{versioned} }
 sub no_create { $_[0]->{no_create} }
 
 my $_archname = $Config{archname};
@@ -134,6 +138,10 @@ my @_lib_subdirs = (
 sub install_base_bin_path {
   my ($class, $path) = @_;
   return File::Spec->catdir($path, 'bin');
+}
+sub install_base_bin_versioned_path {
+  my ($class, $path) = @_;
+  return File::Spec->catdir($path, 'bin', $_version);
 }
 sub install_base_perl_path {
   my ($class, $path) = @_;
@@ -175,6 +183,39 @@ sub installer_options_for {
   );
 }
 
+sub installer_versioned_options_for {
+  my ($class, $path) = @_;
+  if (!defined $path) {
+    return (
+      PERL_MM_OPT => undef,
+      PERL_MB_OPT => undef,
+    );
+  }
+  my $lib = File::Spec->catdir(
+    $class->install_base_perl_path($path),
+    $_version,
+  );
+  my %mm;
+  my %mb;
+  $mm{PRIVLIB} = $mb{lib}    = $lib;
+  $mm{ARCHLIB} = $mb{arch}   = File::Spec->catdir($lib, $Config{archname});
+  $mm{BIN}     = $mb{bin}    =
+  $mm{SCRIPT}  = $mb{script} = $class->install_base_bin_versioned_path($path);
+  $mm{MAN1DIR} = $mm{MAN3DIR} = 'none';
+  $mb{bindoc}  = $mb{libdoc} = '';
+
+  return (
+    PERL_MM_OPT => join(' ',
+      map { "INSTALL$_="._mm_escape_path($mm{$_}) }
+      sort keys %mm
+    ),
+    PERL_MB_OPT => join(' ',
+      map { "--install_path $_="._mb_escape_path($mb{$_}) }
+      sort keys %mb
+    ),
+  );
+}
+
 sub active_paths {
   my ($self) = @_;
   $self = ref $self ? $self : $self->new;
@@ -202,15 +243,32 @@ sub deactivate {
 
   my %args = (
     bins  => [ _remove_from($self->bins,
-      $self->install_base_bin_path($path)) ],
+      $self->install_base_bin_path($path),
+      $self->install_base_bin_versioned_path($path),
+    ) ],
     libs  => [ _remove_from($self->libs,
-      $self->install_base_perl_path($path)) ],
+      $self->lib_paths_for($path)) ],
     inc   => [ _remove_from($self->inc,
       $self->lib_paths_for($path)) ],
     roots => [ _remove_from($self->roots, $path) ],
   );
 
-  $args{extra} = { $self->installer_options_for($args{roots}[0]) };
+  my $extra_method = 'installer_options_for';
+  my $new_root = $args{roots}[0];
+  if (defined $new_root) {
+    my $bin_path = $self->install_base_bin_path($new_root);
+    my $vbin_path = $self->install_base_bin_versioned_path($new_root);
+    for my $bin (@{ $args{bins} }) {
+      if ($bin eq $bin_path) {
+        last;
+      }
+      elsif ($bin eq $vbin_path) {
+        $extra_method = 'installer_versioned_options_for';
+        last;
+      }
+    }
+  }
+  $args{extra} = { $self->$extra_method($new_root) };
 
   $self->clone(%args);
 }
@@ -225,9 +283,13 @@ sub deactivate_all {
   if (@active_lls) {
     %args = (
       bins => [ _remove_from($self->bins,
-        map $self->install_base_bin_path($_), @active_lls) ],
+        map +(
+          $self->install_base_bin_path($_),
+          $self->install_base_bin_versioned_path($_),
+        ), @active_lls
+      ) ],
       libs => [ _remove_from($self->libs,
-        map $self->install_base_perl_path($_), @active_lls) ],
+        map $self->lib_paths_for($_), @active_lls) ],
       inc => [ _remove_from($self->inc,
         map $self->lib_paths_for($_), @active_lls) ],
       roots => [ _remove_from($self->roots, @active_lls) ],
@@ -254,17 +316,21 @@ sub activate {
     $self = $self->deactivate($path);
   }
 
+  my $bin_method = $self->versioned ? 'install_base_bin_versioned_path'
+                                    : 'install_base_bin_path';
   my %args;
   if (!@active_lls || $active_lls[0] ne $path) {
     %args = (
-      bins  => [ $self->install_base_bin_path($path), @{$self->bins} ],
+      bins  => [ $self->$bin_method($path), @{$self->bins} ],
       libs  => [ $self->install_base_perl_path($path), @{$self->libs} ],
       inc   => [ $self->lib_paths_for($path), @{$self->inc} ],
       roots => [ $path, @{$self->roots} ],
     );
   }
 
-  $args{extra} = { $self->installer_options_for($path) };
+  my $extra_method = $self->versioned ? 'installer_versioned_options_for'
+                                      : 'installer_options_for';
+  $args{extra} = { $self->$extra_method($path) };
 
   $self->clone(%args);
 }
