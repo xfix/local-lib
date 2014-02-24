@@ -15,6 +15,7 @@ sub import {
 
   my @steps;
   my %opts;
+  my %step_opts;
   my $shelltype;
 
   while (@args) {
@@ -58,7 +59,7 @@ DEATH
       $opts{no_create} = 1;
     }
     elsif ( $arg eq '--versioned' ) {
-      $opts{versioned} = 1;
+      $step_opts{versioned} = 1;
     }
     elsif ( $arg =~ /^--/ ) {
       die "Unknown import argument: $arg";
@@ -75,7 +76,7 @@ DEATH
 
   for (@steps) {
     my ($method, @args) = @$_;
-    $self = $self->$method(@args);
+    $self = $self->$method(@args, \%step_opts);
   }
 
   if ($0 eq '-') {
@@ -102,7 +103,6 @@ sub libs { $_[0]->{libs}   ||= [ \'PERL5LIB' ] }
 sub bins { $_[0]->{bins}   ||= [ \'PATH' ] }
 sub roots { $_[0]->{roots} ||= [ \'PERL_LOCAL_LIB_ROOT' ] }
 sub extra { $_[0]->{extra} ||= {} }
-sub versioned { $_[0]->{versioned} }
 sub no_create { $_[0]->{no_create} }
 
 my $_archname = $Config{archname};
@@ -229,7 +229,7 @@ sub active_paths {
 
 
 sub deactivate {
-  my ($self, $path) = @_;
+  my ($self, $path, $opts) = @_;
   $self = $self->new unless ref $self;
   $path = $self->resolve_path($path);
   $path = $self->normalize_path($path);
@@ -274,7 +274,7 @@ sub deactivate {
 }
 
 sub deactivate_all {
-  my ($self) = @_;
+  my ($self, $opts) = @_;
   $self = $self->new unless ref $self;
 
   my @active_lls = $self->active_paths;
@@ -302,7 +302,7 @@ sub deactivate_all {
 }
 
 sub activate {
-  my ($self, $path) = @_;
+  my ($self, $path, $opts) = @_;
   $self = $self->new unless ref $self;
   $path = $self->resolve_path($path);
   $self->ensure_dir_structure_for($path)
@@ -313,11 +313,12 @@ sub activate {
   my @active_lls = $self->active_paths;
 
   if (grep { $_ eq $path } @active_lls[1 .. $#active_lls]) {
-    $self = $self->deactivate($path);
+    $self = $self->deactivate($path, $opts);
   }
 
-  my $bin_method = $self->versioned ? 'install_base_bin_versioned_path'
-                                    : 'install_base_bin_path';
+  my $versioned = $opts->{versioned};
+  my $bin_method = $versioned ? 'install_base_bin_versioned_path'
+                              : 'install_base_bin_path';
   my %args;
   if (!@active_lls || $active_lls[0] ne $path) {
     %args = (
@@ -328,8 +329,8 @@ sub activate {
     );
   }
 
-  my $extra_method = $self->versioned ? 'installer_versioned_options_for'
-                                      : 'installer_options_for';
+  my $extra_method = $versioned ? 'installer_versioned_options_for'
+                                : 'installer_options_for';
   $args{extra} = { $self->$extra_method($path) };
 
   $self->clone(%args);
