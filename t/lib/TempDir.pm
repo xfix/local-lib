@@ -24,8 +24,8 @@ sub mk_temp_dir
     # local::lib uses the GetShortPathName trick do get an alternate
     # representation of the path that doesn't constain spaces.
     return ($^O eq 'MSWin32')
-         ? Win32::GetShortPathName($path)
-	 : $path
+        ? Win32::GetShortPathName($path)
+        : $path
 }
 
 1;
