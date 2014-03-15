@@ -11,6 +11,30 @@ sub import {
   exit 0;
 }
 
+sub no_configpm {
+  unshift @INC, sub {
+    if ($_[1] eq 'CPAN/Config.pm') {
+      my ($f, $l) = (caller)[1,2];
+      die "Can't locate CPAN/Config.pm in \@INC () at $f line $l.\n";
+    }
+    0;
+  };
+  require CPAN;
+  for (qw(CPAN::Config CPAN::HandleConfig)) {
+    my $sub = $_.'::_configpmtest';
+    no strict 'refs';
+    if (defined &$sub) {
+      my $orig = \&$sub;
+      no warnings 'redefine';
+      *$sub = sub {
+        return
+          if $_[1] !~ /MyConfig\.pm/;
+        $orig->(@_);
+      };
+    }
+  }
+}
+
 sub cmd_configure {
   require ExtUtils::MakeMaker;
   my $done;
@@ -24,8 +48,7 @@ sub cmd_configure {
     return $orig->(@_);
   };
   require CPAN;
-  CPAN->import;
-  $CPAN::Config->{urllist} = ["http://www.cpan.org/"];
+  no_configpm();
 
   # <mst> all bootstrapped fine on one DH account
   # <mst> on another, it tries to install man stuff into /usr/local
@@ -38,6 +61,9 @@ sub cmd_configure {
   # <mst> so cpan uses EU::ParseXS Makefile.PL
   # <mst> since we already got EUMM, *that* works
   $CPAN::Config->{prefer_installer} = "EUMM";
+
+  $CPAN::Config->{urllist} = ["http://www.cpan.org/"];
+
   CPAN::Config->load;
   unless ($done || -w $CPAN::Config->{keep_source_where}) {
     my $save = $CPAN::Config->{urllist};
@@ -49,7 +75,7 @@ sub cmd_configure {
 
 sub cmd_disable_manpages {
   require CPAN;
-  CPAN->import;
+  no_configpm();
   CPAN::HandleConfig->load;
   $CPAN::Config->{makepl_arg} = 'INSTALLMAN1DIR=none INSTALLMAN3DIR=none';
   $CPAN::Config->{buildpl_arg} = '--install_path libdoc="" --install_path bindoc=""';
@@ -102,6 +128,7 @@ DEATH
 sub cmd_install {
   my @modules = @_;
   require CPAN;
+  no_configpm();
   if (grep $_ eq 'notest', @CPAN::EXPORT) {
     CPAN::notest('install', $_) for @modules;
   }
@@ -112,6 +139,7 @@ sub cmd_install {
 
 sub cmd_postconfigure {
   require CPAN;
+  no_configpm();
   if (eval { require CPAN::HandleConfig; } ) {
     CPAN::HandleConfig->require_myconfig_or_config;
   }
