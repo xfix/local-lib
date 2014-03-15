@@ -143,14 +143,11 @@ END
   local $ENV{PERL_AUTOINSTALL_PREFER_CPAN} = 1;
   local $ENV{PERL_MM_USE_DEFAULT} = 1;
 
-  my @cpan_command = map qq{force(q[install],q[$_]);}, @modules;
-
-  if (@cpan_command || $disable_manpages) {
+  if (@modules || $disable_manpages) {
     system($^X, '-Minc::CPAN=configure');
   }
-  if (@cpan_command) {
-    system($^X, '-MCPAN', '-e', $_)
-      for @cpan_command;
+  if (@modules) {
+    system($^X, '-Minc::CPAN=install', '-', @modules);
   }
   if (grep { $_ eq 'CPAN' } @modules ) {
     system($^X, '-Minc::CPAN=postconfigure');

@@ -99,6 +99,17 @@ DEATH
   }
 }
 
+sub cmd_install {
+  my @modules = @_;
+  require CPAN;
+  if (grep $_ eq 'notest', @CPAN::EXPORT) {
+    CPAN::notest('install', $_) for @modules;
+  }
+  else {
+    CPAN::force('install', $_) for @modules;
+  }
+}
+
 sub cmd_postconfigure {
   require CPAN;
   if (eval { require CPAN::HandleConfig; } ) {
