@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 sub import {
-  my $op = shift @ARGV
+  my $op = $_[1] || shift @ARGV
     or die "no operation specified!\n";
   my $do = __PACKAGE__->can("cmd_$op")
     or die "invalid operation $op\n";
